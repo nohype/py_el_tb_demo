@@ -1,0 +1,519 @@
+// Strategy: ES-106M-B10-R1e-754-1
+// Created on: 2025-12-07
+
+{
+Breakout Strategies Master Code AUG 2023
+HedgeFund version 3.0
+
+For ELITE users only
+2023(c)Tomas Nesnidal
+2023(c)Better Trader Academy
+
+DISCLAIMER: Futures trading systems and commodity trading bear a high degree of risk. People can and do lose money.
+Hypothetical results have many inherent limitations. Past performance does not guarantee future results.
+
+2023(c)BetterTraderAcademy.com
+2023(c)Tomas Nesnidal
+
+Copyrighted material. Sharing without author´s approval is strictly prohibited and against the law.
+
+}
+
+inputs:
+int L_S_B(0),
+int POI_N1(2),
+double FractLong(2.2),
+double FractShrt(1.9),
+double Filter_N1(17),
+double Filter_N2(9);
+
+consts:
+int minBSE_Entry(0),
+int MaxEntriesPerDay(1),
+int StatusBeforeEntry(0),
+int AH(0),
+int FractAsym(0),
+int BSE_Exit(16),
+int EOD_Exit(1),
+int EOW_Exit(0),
+int myExitTime_Enable(0),
+int myExitTime(1500),
+int SL_Method(0),
+int SL_Value(8),
+int SL_USD_Coef(1000),
+int SL_Reduction(0),
+double ReduceSLtoMIN(0.5),
+double ReduceSLtoMAX(3),
+int useTechSL(0),
+double TechSL(5000),
+double RRR(1.25),
+int TSL_Method(1),
+double TSL_Value(1),
+int TSL_BSEDelay(0),
+int TSL_InProfit_Delay(0);
+
+	// 0 = OFF, 1 = ON
+
+//VARIOUS
+//ja si myslim ze to je stejne jen pro TSL
+//int		SLonEntryBar(0),	    // 0=False, 1=True  Place SL on the Entry Bar
+
+Vars:
+double	MP(0),
+bool	GhostBar(false),			//eliminate ghost bars on renko, momentum and range symbols
+bool	MQLong(false),				//MQ
+bool	MQShrt(false),
+bool	UseBreakout(true),			//POI
+double	POILong(0),
+double	POIShrt(0),
+double 	mySpaceLong(0),
+double 	mySpaceShrt(0),
+double	BO_Level_Long(0),			//BO_Level
+double	BO_Level_Shrt(0),
+bool	Filter_Long(false),			//Filter
+bool	Filter_Shrt(false),
+bool	TimeFilterCond(false),		//TimeFilter
+bool	minBarsSinceExitCond(true),	//minBSE_Entry
+int		FinalEntryDirection(0),		//FinalEntryDirection
+bool	StatusBeforeEntryLONG(true),//StatusBeforeEntry
+bool	StatusBeforeEntrySHRT(true),
+bool	entryLong(false),			//Entry conditions
+bool	entryShrt(false),
+double	SL_USD(0),					//final SL in USD
+double	SL_Points_Long(0),			//Points from SL for TSL
+double	SL_Points_Shrt(0),
+double	PT_USD(0),					//final PT in USD
+bool	TSL_Cond_Long(false),		//TSL
+bool	TSL_Cond_Shrt(false),
+double	TSL_Level_Long(0),
+double	TSL_Level_Shrt(0),
+int		CumMA_count(0),
+double	CumMA(0),
+double	SumMA(0),
+double	myLowD(0),
+double	myHighD(0),
+double	myCloseD(0),
+double	myOpenD(0),
+double	my50rtcmnt(0),
+double	CoefTimeFrame(0),
+double myMaxRangeDay(0),
+double OneThirdOfDay(0),
+double diff1(0),
+double diff2(0),
+double ATR_Entry(0),
+double PT_Points(0),
+double SLswingLong(0),					//For swings
+double SLswingShrt(0),
+double SLmaSwingLong(0),
+double SLmaSwingShrt(0),
+double SL_USD_Long(0),
+double SL_USD_Shrt(0),
+double	TSL_BSE(0),
+double	TradeHH(0),
+double	TradeLL(0),
+double	TradeRange(0),
+bool	TSL_InProfit_Cond(false),
+bool	TSL_BSE_Cond(false),
+double	TSL_LevelNew_Long(0),
+double	TSL_LevelNew_Shrt(0);
+
+Const:
+int MktNumMQ(2); 	// market data for MQ filter
+
+{***** PART 0: AUX Calcs *****}
+Once
+Begin
+	CoefTimeFrame = 30 / barinterval;
+end;
+
+MP = MarketPosition;
+GhostBar = ( Upticks + Downticks = 0 );
+
+{
+If date<>date[1] then begin //Reset with a new day
+	myLowD = LowD(0);
+	myHighD = HighD(0);
+	myCloseD = CloseD(1);
+	myOpenD = OpenD(0);
+	CumMA_count = 0;
+	myMaxRangeDay = Range;
+end;
+//Actualization with each new bar
+if L < myLowD then myLowD = L;
+if H > myHighD then myHighD = H;
+my50rtcmnt = myLowD + ((myHighD - myLowD) / 2);
+if Range > myMaxRangeDay then myMaxRangeDay = range;
+}
+
+If AH = 0 then begin
+	If date<>date[1] then begin //Reset with a new day
+		myLowD = LowD(0);
+		myHighD = HighD(0);
+		myOpenD = OpenD(0);
+		myCloseD = CloseD(1);
+		CumMA_count = 0;
+		SumMA = 0;
+		myMaxRangeDay = H-L; //Range;
+	end;
+
+	//Actualization with each new bar
+	if L < myLowD then myLowD = L;
+	if H > myHighD then myHighD = H;
+	my50rtcmnt = (myLowD + myHighD) / 2;	//Original calc: myLowD + ((myHighD - myLowD) / 2)
+	if (H-L) > myMaxRangeDay then myMaxRangeDay = H-L; //Range;
+
+	//CumMA
+	CumMA_count += 1;
+	SumMA += (H+L) / 2;
+	CumMA = SumMA / CumMA_count;
+end;
+
+If AH = 1 then begin
+	If CurrentSession(0) <> CurrentSession(0)[1] then
+	Begin
+		myLowD = L;
+		myHighD = H;
+		myOpenD = O;
+		myCloseD = C[1];
+		CumMA_count = 0;
+		SumMA = 0;
+		myMaxRangeDay = H-L; //Range;
+	end;
+
+	//Actualization with each new bar
+	if L < myLowD then myLowD = L;
+	if H > myHighD then myHighD = H;
+	my50rtcmnt = (myLowD + myHighD) / 2;
+	if (H-L) > myMaxRangeDay then myMaxRangeDay = H-L; //Range;
+
+	//CumMA
+	CumMA_count += 1;
+	SumMA += (H+L) / 2;
+	CumMA = SumMA / CumMA_count;
+end;
+
+{***** PART I: BREAKOUT LEVEL CALCULATION (as POI +/- DISTANCE) *****}
+// POI Part
+UseBreakout = true;
+// STRIPPED POI_Switch=76
+ //ID: 4.30
+POILong = TN_ADAPTIVE_MAF((15 + (POI_N1 * 2)), 1, false, 0, 14, 0);
+POIShrt = POILong;
+
+
+// Distance as volatility multiplication
+// STRIPPED BO_SPACE=3
+		mySpaceLong = FractLong * myMaxRangeDay;
+mySpaceShrt = FractShrt * myMaxRangeDay;
+
+If FractAsym = 0 then mySpaceShrt = mySpaceLong;
+
+{***** PART II: FILTERS *****}
+// Filter MQ
+// STRIPPED MQ=0
+		MQLong =  true;
+MQShrt =  true;
+
+
+// Filter
+// STRIPPED Filter_Switch=37
+		Filter_Long = (Close - myCloseD) < (AvgTrueRange((3*Filter_N1))) * (0.25 * Filter_N2);
+Filter_Shrt = (myCloseD - Close ) < (AvgTrueRange((3*Filter_N1))) * (0.25 * Filter_N2);
+
+
+// TimeFilter
+// STRIPPED TimeFilter=0
+	//Off
+		TimeFilterCond = True;
+
+
+{***** PART III: EXECUTION *****}
+{Minimum bars between trades - preparation}
+If minBSE_Entry = 0 then
+begin
+	minBarsSinceExitCond = true;
+end
+else begin
+	If TotalTrades = 0 then minBarsSinceExitCond = true else minBarsSinceExitCond = barssinceexit(1) > minBSE_Entry;
+end;
+
+// Calculate breakout level
+if UseBreakout = true then
+begin
+	BO_level_Long = POILong + mySpaceLong;
+	BO_Level_Shrt = POIShrt - mySpaceShrt;
+	// Rounding
+	BO_Level_Long = Round2Fraction(BO_Level_Long);
+	BO_Level_Shrt = Round2Fraction(BO_Level_Shrt);
+end
+else begin
+	BO_Level_Long = POILong;
+	BO_Level_Shrt = POIShrt;
+end;
+
+// FinalEntryDirection
+//Protection that there are never both LONG and SHORT stop orders placed at the same time
+diff1 = absvalue(close - BO_Level_LONG);
+diff2 = absvalue(close - BO_Level_SHRT);
+//always pick only one entry, the closer one to the actual market
+if (diff1 <= diff2) then FinalEntryDirection = 1 else FinalEntryDirection = -1;
+If L_S_B = 1 then FinalEntryDirection = 1;
+If L_S_B = 2 then FinalEntryDirection = -1;
+
+// Status Before Entry
+If StatusBeforeEntry = 1 then begin
+	if C < BO_level_Long then StatusBeforeEntryLONG = true else StatusBeforeEntryLONG = false;
+	if C > BO_level_Shrt then StatusBeforeEntrySHRT = true else StatusBeforeEntrySHRT = false;
+end else begin
+	StatusBeforeEntryLONG = true;
+	StatusBeforeEntrySHRT = true;
+end;
+
+// Final entry cond
+entryLong = (MP = 0)
+			and GhostBar = false
+			and L_S_B <> 2
+			and MQLong = true
+			and Filter_Long = true
+			and TimeFilterCond = true
+			and minBarsSinceExitCond = true
+			and FinalEntryDirection > 0
+			and StatusBeforeEntryLONG
+			and entriestoday(date) < MaxEntriesPerDay;
+
+entryShrt = (MP = 0)
+			and GhostBar = false
+			and L_S_B <> 1
+			and MQShrt = true
+			and Filter_Shrt = true
+			and TimeFilterCond = true
+			and minBarsSinceExitCond = true
+			and FinalEntryDirection < 0
+			and StatusBeforeEntrySHRT
+			and entriestoday(date) < MaxEntriesPerDay;
+
+// Entry Long
+If entryLong then
+begin
+	Buy next bar at BO_level_Long stop;
+end;
+
+// Entry Short
+If entryShrt then
+begin
+	SellShort next bar at BO_level_Shrt stop;
+end;
+
+// StopLoss
+If (EntryLong or EntryShrt) and SL_Method <=3 then
+begin
+	// STRIPPED SL_Method=default (fallback from 0)
+ {Off}
+SL_Points_Long = 0;
+
+
+	SL_Points_Shrt = SL_Points_Long;
+end;
+
+// Asymmetrical SL methods: 4-6 for Long
+If EntryLong and SL_Method >=4 then
+begin
+	//AUX
+	SLswingLong = TN_Swing_Long(minlist(SL_Value, 3), 0);
+	SLmaSwingLong = TN_MA_Swing_Long_2(2, 0, maxlist(2, SL_Value), {$ID_TNMAL}6);
+
+	Switch (SL_Method)
+	begin
+		Case 4: begin {SL Swing main TF}
+			If SLswingLong < L and (BO_Level_Long - SLswingLong > 0) then begin
+				SL_Points_Long = (BO_Level_Long - SLswingLong);
+			end else begin
+				SL_Points_Long = 3*myMaxRangeDay;
+			end;
+		end;
+		Case 5: begin {SL MA Swing main TF}
+			If SLswingLong < L and (BO_Level_Long - SLmaSwingLong > 0) then begin
+				SL_Points_Long = (BO_Level_Long - SLmaSwingLong);
+			end else begin
+				SL_Points_Long = 3*myMaxRangeDay;
+			end;
+		end;
+		Case 6: begin {SL LL main TF}
+			SL_Points_Long = absvalue(BO_Level_Long - Lowest(L, floor(SL_Value * CoefTimeFrame)));
+		end;
+	end;
+end;
+
+// Asymmetrical SL methods: 4-6 for Short
+If EntryShrt and SL_Method >=4 then
+begin
+	//AUX
+	SLswingShrt = TN_Swing_Short(minlist(SL_Value, 3), 0);
+	SLmaSwingShrt = TN_MA_Swing_Short_2(2, 0, maxlist(2, SL_Value), {$ID_TNMAS}6);
+
+	Switch (SL_Method)
+	begin
+		Case 4: begin {SL Swing main TF}
+			If SLswingShrt > H and (SLswingShrt - BO_level_Shrt > 0) then begin
+				SL_Points_Shrt = (SLswingShrt - BO_level_Shrt);
+			end else begin
+				SL_Points_Shrt = 3*myMaxRangeDay;
+			end;
+		end;
+		Case 5: begin {SL MA Swing main TF}
+			If SLswingShrt > H and (SLmaSwingShrt - BO_level_Shrt > 0) then begin
+				SL_Points_Shrt = (SLmaSwingShrt - BO_level_Shrt);
+			end else begin
+				SL_Points_Shrt = 3*myMaxRangeDay;
+			end;
+		end;
+		Case 6: begin {SL HH main TF}
+			SL_Points_Shrt = absvalue(Highest(H, floor(CoefTimeFrame * SL_Value)) - BO_level_Shrt);
+		end;
+	end;
+end;
+
+If (EntryLong) then
+begin
+	// SL Reduction only available for ATR and swing based methods
+	If SL_Reduction >= 1 and SL_Method >=3 then SL_Points_Long = BTA_ELITE_SLReduction(SL_Reduction, ReduceSLtoMIN, ReduceSLtoMAX, SL_USD_Coef, SL_Points_Long);
+
+	// Set Basic SL
+	SL_USD_Long = SL_Points_Long * BigPointValue;
+end;
+
+If (EntryShrt) then
+begin
+	// SL Reduction only available for ATR and swing based methods
+	If SL_Reduction >= 1 and SL_Method >=3 then SL_Points_Shrt = BTA_ELITE_SLReduction(SL_Reduction, ReduceSLtoMIN, ReduceSLtoMAX, SL_USD_Coef, SL_Points_Long);
+
+	// Set Basic SL
+	SL_USD_Shrt = SL_Points_Shrt * BigPointValue;
+end;
+
+MP = MarketPosition;
+If (MP <> 0) then
+begin
+	// In position set by position side
+	if MP > 0 then SL_USD = SL_USD_Long;
+	if MP < 0 then SL_USD = SL_USD_Shrt;
+end else
+begin
+	// Before entry set SL by order side to entry next bar
+	if EntryLong then SL_USD = SL_USD_Long;
+	if EntryShrt then SL_USD = SL_USD_Shrt;
+end;
+
+// TechSL
+if (useTechSL = 1) and (SL_USD > TechSL) then SL_USD = TechSL;
+if SL_USD<>0 then SetStopLoss(SL_USD);
+
+// Profit-Target
+If (EntryLong or EntryShrt) then
+begin
+	// STRIPPED PT_Method=4
+ {RRR Fract}
+PT_Points = (RRR * SL_USD) / BigPointValue;
+
+	PT_USD = PT_Points * BigPointValue;
+end;
+if PT_USD<>0 then SetProfitTarget(PT_USD);
+
+
+// BSEExit - Bars Since Entry Exit
+If MP <> 0 and BSE_Exit > 0 then begin
+	If barssinceentry(0) = BSE_Exit then begin
+		If MP > 0 then sell ("BSE_LNG_Ex") this bar at close;
+		If MP < 0 then buytocover ("BSE_SHRT_Ex")this bar at close;
+	end;
+End;
+
+// EOD - End Of Day Exit
+If MP <> 0 and EOD_Exit = 1 then begin
+	if myExitTime_Enable = 1 then begin
+		if MP > 0 and time = myExitTime then sell ("EOD_LNG_Ex") this bar on close;
+		if MP < 0 and time = myExitTime then buytocover ("EOD_SHR_Ex") this bar on close;
+	end else begin
+		SetExitOnClose;
+	end;
+end;
+
+// EOW - End Of Week Exit (Friday Exit)
+If MP <> 0 and EOW_Exit = 1 and dayofweek(date) = 5 then begin
+	if myExitTime_Enable = 1 then begin
+		if MP > 0 and time = myExitTime then sell ("EOW_LNG_Ex") this bar on close;
+		if MP < 0 and time = myExitTime then buytocover ("EOW_SHR_Ex") this bar on close;
+	end else begin
+		SetExitOnClose;
+	end;
+end;
+
+// TSL
+TSL_Cond_Long = false;
+TSL_Cond_Shrt = false;
+
+If TSL_Method <> 0 then
+begin
+	MP = MarketPosition;
+
+	// AUX
+	CoefTimeFrame = 30 / barinterval;
+
+	// AUX for Chandellier
+	If MP = 0 then
+	begin
+		TradeHH = H;
+		TradeLL = L;
+		TradeRange = range;
+	end;
+	If MP <> 0 then begin
+		If H > TradeHH then TradeHH = H;
+		If L < TradeLL then TradeLL = L;
+		if H-L > TradeRange then TradeRange = H-L;
+	end;
+
+	// TSL_InProfit_Cond
+	if MP = 0 then TSL_InProfit_Cond = false;	//reset
+	if MP > 0 then if L >= EntryPrice(0) then TSL_InProfit_Cond = true;	//for Long
+	if MP < 0 then if H <= EntryPrice(0) then TSL_InProfit_Cond = true;	//for Short
+	if TSL_InProfit_Delay = 0 then TSL_InProfit_Cond = true;
+
+	// TSL_BSE_Cond
+	If TSL_BSEDelay = 0 then TSL_BSE = 1 else TSL_BSE = CoefTimeFrame * 5;
+	TSL_BSE_Cond = barssinceentry(0) > TSL_BSE;
+
+	// TSL init levels at basic SL level
+	If (MP <> 0 and barssinceentry(0) = 1) then
+	begin
+		TSL_Level_Long = EntryPrice(0) - SL_Points_Long;
+		TSL_Level_Shrt = EntryPrice(0) + SL_Points_Shrt;
+	end;
+
+	// Long
+	If (MP > 0 and TSL_BSE_Cond = true and TSL_InProfit_Cond = true) then
+	begin
+		// STRIPPED TSL_Method=1
+ // Swing
+TSL_LevelNew_Long = TN_Swing_Long(minlist(TSL_Value,3), 0);
+if (TSL_LevelNew_Long >= TSL_Level_Long and TSL_LevelNew_Long < L) then TSL_Level_Long = TSL_LevelNew_Long;
+
+		TSL_Cond_Long = true;
+		TSL_Level_Long = Round2Fraction(TSL_Level_Long);
+	end;
+
+	// Short
+	If (MP < 0 and TSL_BSE_Cond = true and TSL_InProfit_Cond = true) then
+	begin
+		// STRIPPED TSL_Method=1
+ // Swing
+TSL_LevelNew_Shrt = TN_Swing_Short(minlist(TSL_Value,3), 0);
+if (TSL_LevelNew_Shrt <= TSL_Level_Shrt and TSL_LevelNew_Shrt > H) then TSL_Level_Shrt = TSL_LevelNew_Shrt;
+
+		TSL_Cond_Shrt = true;
+		TSL_Level_Shrt = Round2Fraction(TSL_Level_Shrt);
+	end;
+
+end;
+
+If TSL_Cond_Long = true then sell ("TSL_LNG_STP") next bar at TSL_Level_Long stop;
+If TSL_Cond_Shrt = true then buytocover ("SL_SHR_STP") next bar at TSL_Level_Shrt stop;

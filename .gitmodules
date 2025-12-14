@@ -1,0 +1,3 @@
+[submodule "external/el_grammar"]
+	path = external/el_grammar
+	url = git@github.com:nohype/EasyLanguage-ANTLR4-grammar.git
