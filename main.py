@@ -1,6 +1,9 @@
+import argparse
 from pathlib import Path
+from pprint import pprint
 from typing import Optional, Union
 
+import xlwings as xw
 from antlr4 import ParserRuleContext
 from antlr4.tree.Tree import TerminalNode
 
@@ -35,6 +38,7 @@ from el_ast import (
     merge_overlapping_code_locations,
 )
 from generated.elantlr.EasyLanguageParser import EasyLanguageParser
+from toolbox_handler import ToolboxHandler
 
 
 def _read_file_to_string(file_path: Path) -> str:
@@ -427,7 +431,7 @@ def test_switches(el_code: str, doc: ELDocument):
             print("-" * 80)
 
 
-def main():
+def main_test():
     el_file_path = Path(__file__).parent / "el_samples" / "ES-106M-B10-R1e-754-1.txt"
     el_code = el_file_path.read_text()
     doc = ELDocument(el_code, el_file_path)
@@ -436,5 +440,36 @@ def main():
     # test_switches(el_code, doc)
 
 
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--workbook", "-w", type=Path, required=True, help="Path to the workbook file")
+    parser.add_argument("--dry-run", action="store_true", help="Run without making changes")
+    args = parser.parse_args()
+
+    tb_handler = ToolboxHandler(workbook_path=args.workbook)
+    strats_without_opt_inputs = tb_handler.get_strategies_without_opt_inputs()
+    # print(strats_without_opt_inputs)
+
+    new_strategy_opt_inputs = {}
+
+    tb_settings = tb_handler.get_settings()
+    for entry in tb_settings.candidate_code_dir.iterdir():
+        if entry.is_file() and (entry.stem in strats_without_opt_inputs):
+            strategy_name = entry.stem
+
+            print(f"[] Extracting inputs from '{str(entry)}'...")
+            doc = ELDocument(_read_file_to_string(entry), entry.absolute())
+            inputs = doc.variable_declarations_merged("inputs")
+            new_strategy_opt_inputs[strategy_name] = inputs.keys()
+            print(f"\t[{','.join(inputs.keys())}]")
+
+    if (not args.dry_run) and (len(new_strategy_opt_inputs) > 0):
+        print()
+        print("Writing OPT inputs to DB...")
+        tb_handler.set_strategy_opt_inputs(new_strategy_opt_inputs)
+        print("Done.")
+
+
 if __name__ == "__main__":
+    # main_test()
     main()
