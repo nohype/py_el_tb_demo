@@ -442,11 +442,11 @@ def main_test():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--workbook", "-w", type=Path, required=True, help="Path to the workbook file")
+    parser.add_argument("--workbook", "-w", type=str, required=True, help="Workbook file name (e.g. 'Toolbox.xlsm')")
     parser.add_argument("--dry-run", action="store_true", help="Run without making changes")
     args = parser.parse_args()
 
-    tb_handler = ToolboxHandler(workbook_path=args.workbook)
+    tb_handler = ToolboxHandler(workbook_name=args.workbook)
     strats_without_opt_inputs = tb_handler.get_strategies_without_opt_inputs()
     # print(strats_without_opt_inputs)
 
@@ -472,4 +472,8 @@ def main():
 
 if __name__ == "__main__":
     # main_test()
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"[!!] {e}")
+        exit(1)

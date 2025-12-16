@@ -120,23 +120,31 @@ def time_to_float(input_time: dt.datetime | str) -> float:
 
 
 class ToolboxHandler:
-    def __init__(self, workbook_path: str, close_new_instance: bool = True):
-        self.__wb_path = workbook_path
-        self.__was_already_open = not close_new_instance
+    class WorkbookNotOpenError(RuntimeError):
+        """Raised when the target workbook is not already open in any Excel instance."""
+
+    def __init__(self, workbook_name: str):
+        if not isinstance(workbook_name, str) or not workbook_name.strip():
+            raise ValueError("workbook_name must be a non-empty file name string (e.g. 'Toolbox.xlsm').")
+
+        self.__workbook_name = workbook_name.strip()
+        target = self.__workbook_name.casefold()
 
         wb: xw.Book | None = None
         for app in xw.apps:
             for book in app.books:
-                if Path(book.fullname).samefile(self.__wb_path):
-                    self.__was_already_open = True
+                # Match by file name only (ignore path) to support protected/virtualized locations.
+                if book.name.strip().casefold() == target:
                     wb = book
                     break
 
-        if wb is None:
-            wb = xw.Book(self.__wb_path)
+            if wb is not None:
+                break
 
         if wb is None:
-            raise RuntimeError(f"Failed to open '{self.__wb_path}' in Excel.")
+            raise ToolboxHandler.WorkbookNotOpenError(
+                f"No already-open Excel workbook named '{self.__workbook_name}' was found in any running Excel instance."
+            )
 
         self.__wb: xw.Book = wb
 
@@ -150,11 +158,6 @@ class ToolboxHandler:
         self.__database_sheet = None
         self.__is_sheet = None
         self.__oos_sheet = None
-
-    def __del__(self):
-        if not self.__was_already_open:
-            self.__wb.save()
-            self.__wb.close()
 
     def setting_sheet(self) -> xw.Sheet:
         if not self.__setting_sheet:
@@ -336,7 +339,7 @@ class ToolboxHandler:
             if name not in strategy_opt_inputs:
                 continue
 
-            db.cells[(index, DB_OPT_INPUTS_COL)].value = ",".join(strategy_opt_inputs[name])
+            db.cells[(index + DB_FIRST_DATA_ROW, DB_OPT_INPUTS_COL)].value = ",".join(strategy_opt_inputs[name])
 
     def set_popups_enabled(self, enable: bool):
         self.__wb.macro("PTB_SetPopupsEnabled")(enable)
